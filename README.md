@@ -108,3 +108,8 @@ latest
 
 For reproducible deployments, it is recommended to pin images using immutable revision tags (`2.11.4-r3`) or, for the highest level of reproducibility, the image digest (`@sha256:...`). Mutable tags such as `latest` or `2.11.4` may be updated to point to newer builds over time.
 
+## License
+
+The Dockerfile, build scripts, GitHub Actions workflows, and other files in this repository are licensed under the MIT License.  
+Please note that software bundled into the resulting image (such as Caddy and its modules) remains subject to their respective licenses.  
+See the [LICENSE](LICENSE) file for details.
