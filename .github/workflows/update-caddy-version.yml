@@ -92,7 +92,7 @@ jobs:
       - name: Open pull request
         id: cpr
         if: steps.compare.outputs.update_needed == 'true'
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore: bump Caddy to ${{ steps.latest.outputs.latest_version }}"
