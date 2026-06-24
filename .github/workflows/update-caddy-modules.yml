@@ -1,4 +1,4 @@
-ame: Update Caddy Modules
+name: Update Caddy Modules
  
 on:
   schedule:
