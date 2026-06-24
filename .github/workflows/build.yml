@@ -245,6 +245,7 @@ jobs:
           MINOR: ${{ needs.prepare.outputs.minor }}
           FULL_TAG: ${{ needs.prepare.outputs.full_tag }}
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          MODULES: ${{ needs.prepare.outputs.modules }}
         run: |
           set -euo pipefail
 
@@ -269,7 +270,7 @@ jobs:
             echo "**Caddy:** \`${CADDY_VERSION}\`"
             echo
             echo "**Modules:**"
-            echo "${{ needs.prepare.outputs.modules }}"
+            echo "${MODULES}"
             echo
             echo "## Image"
             echo
