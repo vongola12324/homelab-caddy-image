@@ -1,0 +1,99 @@
+ame: Update Caddy Modules
+ 
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch: {}
+ 
+permissions:
+  contents: write
+  pull-requests: write
+ 
+jobs:
+  check-and-update:
+    name: Check module versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+ 
+      # Each line is "github.com/<owner>/<repo>[/subpath]@vX.Y.Z".
+      # The repo is always the first two path segments after
+      # github.com/ — this also correctly strips Go major-version
+      # suffixes (/v2, /v3) and monorepo subpaths (/plugins/caddy),
+      # neither of which are part of the actual GitHub repo.
+      #
+      # modules.txt has no go.mod, so Dependabot's gomod ecosystem
+      # can't see it; there's no ecosystem for a plain custom-format
+      # text file like this either, so versions are checked directly
+      # against each repo's tags via `gh api` (the GitHub REST API,
+      # not the registry protocol GHCR uses for the Caddy version
+      # check, so GITHUB_TOKEN works fine here).
+      - name: Check for module updates
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+ 
+          updates_found=false
+          summary_file="$(mktemp)"
+ 
+          while IFS= read -r line; do
+            module_path="${line%@*}"
+            current_version="${line##*@}"
+            repo="$(echo "$module_path" | sed -E 's#^github\.com/([^/]+)/([^/]+).*#\1/\2#')"
+ 
+            latest_version="$(gh api "repos/${repo}/tags" --jq '.[].name' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V \
+              | tail -n1 || true)"
+ 
+            if [ -z "$latest_version" ]; then
+              echo "::warning::No tags found for ${repo}, skipping"
+              continue
+            fi
+ 
+            echo "${repo}: current=${current_version} latest=${latest_version}"
+ 
+            if [ "$current_version" != "$latest_version" ]; then
+              updates_found=true
+              echo "- \`${module_path}\`: \`${current_version}\` → \`${latest_version}\`" >> "$summary_file"
+              sed -i "s|${module_path}@${current_version}|${module_path}@${latest_version}|" modules.txt
+            fi
+          done < <(grep -vE '^\s*#' modules.txt | grep -vE '^\s*$')
+ 
+          echo "updates_found=${updates_found}" >> "$GITHUB_OUTPUT"
+          {
+            echo "summary<<MODULE_SUMMARY_EOF"
+            cat "$summary_file"
+            echo "MODULE_SUMMARY_EOF"
+          } >> "$GITHUB_OUTPUT"
+ 
+      - name: Open pull request
+        id: cpr
+        if: steps.check.outputs.updates_found == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump Caddy modules in modules.txt"
+          title: "chore: bump Caddy modules"
+          body: |
+            Automated update detected newer versions for one or more modules in `modules.txt`.
+ 
+            ${{ steps.check.outputs.summary }}
+          branch: bump-caddy-modules
+          delete-branch: true
+          labels: |
+            dependencies
+            automated
+ 
+      # Only flags auto-merge; actual merge waits on build.yml's
+      # required status checks (set up via branch protection).
+      - name: Enable Pull Request Automerge
+        if: steps.check.outputs.updates_found == 'true'
+        shell: bash
+        run: gh pr merge --merge --auto "${{ steps.cpr.outputs.pull-request-number }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

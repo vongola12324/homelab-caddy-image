@@ -1,0 +1,122 @@
+name: Update Caddy Version
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-and-update:
+    name: Check upstream Caddy version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Get current version from Dockerfile
+        id: current
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          line="$(grep -m1 '^ARG CADDY_VERSION=' Dockerfile || true)"
+          if [ -z "$line" ]; then
+            echo "::error::Could not find a line matching '^ARG CADDY_VERSION=' in Dockerfile"
+            exit 1
+          fi
+
+          current_version="${line#ARG CADDY_VERSION=}"
+          current_version="$(echo "$current_version" | tr -d '[:space:]')"
+
+          echo "Current Dockerfile version: ${current_version}"
+          echo "current_version=${current_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Get latest stable Caddy release
+        id: latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # caddyserver/caddy tags releases as "vX.Y.Z". We take the
+          # newest release that GitHub marks as latest (this naturally
+          # excludes pre-releases/drafts).
+          latest_json="$(gh api repos/caddyserver/caddy/releases/latest)"
+          latest_tag="$(echo "$latest_json" | jq -r '.tag_name')"
+          latest_version="${latest_tag#v}"
+
+          if ! [[ "$latest_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Latest release tag '${latest_tag}' did not parse as a plain semver"
+            exit 1
+          fi
+
+          echo "Latest upstream Caddy version: ${latest_version}"
+          echo "latest_version=${latest_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Compare versions
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current="${{ steps.current.outputs.current_version }}"
+          latest="${{ steps.latest.outputs.latest_version }}"
+
+          if [ "$current" = "$latest" ]; then
+            echo "Already up to date (${current}). Nothing to do."
+            echo "update_needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Update available: ${current} -> ${latest}"
+            echo "update_needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update Dockerfile
+        if: steps.compare.outputs.update_needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current="${{ steps.current.outputs.current_version }}"
+          latest="${{ steps.latest.outputs.latest_version }}"
+
+          sed -i "s/^ARG CADDY_VERSION=${current}$/ARG CADDY_VERSION=${latest}/" Dockerfile
+
+          # Verify the substitution actually happened.
+          grep -qx "ARG CADDY_VERSION=${latest}" Dockerfile
+
+      - name: Open pull request
+        id: cpr
+        if: steps.compare.outputs.update_needed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump Caddy to ${{ steps.latest.outputs.latest_version }}"
+          title: "chore: bump Caddy ${{ steps.current.outputs.current_version }} → ${{ steps.latest.outputs.latest_version }}"
+          body: |
+            Automated update detected a new upstream Caddy release.
+
+            - Current: `${{ steps.current.outputs.current_version }}`
+            - Latest: `${{ steps.latest.outputs.latest_version }}`
+
+            This PR will auto-merge once the build validation check
+            (linux/amd64 + linux/arm64) passes. Merging then triggers
+            the [build & release workflow](../../actions/workflows/build.yml)
+            to publish `${{ steps.latest.outputs.latest_version }}-r1`.
+          branch: bump-caddy-${{ steps.latest.outputs.latest_version }}
+          delete-branch: true
+          labels: |
+            dependencies
+            automated
+
+      - name: Enable Pull Request Automerge
+        if: steps.compare.outputs.update_needed == 'true'
+        shell: bash
+        run: gh pr merge --merge --auto "${{ steps.cpr.outputs.pull-request-number }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
