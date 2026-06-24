@@ -36,6 +36,7 @@ jobs:
       major: ${{ steps.version.outputs.major }}
       minor: ${{ steps.version.outputs.minor }}
       full_tag: ${{ steps.revision.outputs.full_tag }}
+      modules: ${{ steps.modules.outputs.modules }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -67,6 +68,24 @@ jobs:
           echo "caddy_version=$caddy_version" >> "$GITHUB_OUTPUT"
           echo "major=$major" >> "$GITHUB_OUTPUT"
           echo "minor=$minor" >> "$GITHUB_OUTPUT"
+
+      - name: Read modules list
+        id: modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          modules_md=""
+          while IFS= read -r line; do
+            pkg="${line%@*}"
+            ver="${line##*@}"
+            repo="$(echo "$pkg" | sed -E 's#^github\.com/([^/]+)/([^/]+).*#\1/\2#')"
+            modules_md="${modules_md}- [\`${repo}\`](https://github.com/${repo}): \`${ver}\`\n"
+          done < <(grep -vE '^\s*#' modules.txt | grep -vE '^\s*$')
+          {
+            echo "modules<<MODULES_EOF"
+            printf '%b' "$modules_md"
+            echo "MODULES_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Determine next revision from existing GHCR tags
         id: revision
@@ -245,17 +264,25 @@ jobs:
           {
             echo "Automated build of \`${image_lower}:${FULL_TAG}\`."
             echo
-            echo "**Caddy version:** ${CADDY_VERSION}"
-            echo "**Image digest:** ${digest}"
+            echo "## Versions"
             echo
-            echo "**Published tags:**"
+            echo "**Caddy:** \`${CADDY_VERSION}\`"
+            echo
+            echo "**Modules:**"
+            echo "${{ needs.prepare.outputs.modules }}"
+            echo
+            echo "## Image"
+            echo
+            echo "**Digest:** \`${digest}\`"
+            echo
+            echo "**Platforms:** \`linux/amd64\`, \`linux/arm64\`"
+            echo
+            echo "**Tags:**"
             echo "- \`latest\`"
             echo "- \`${MAJOR}\`"
             echo "- \`${MINOR}\`"
             echo "- \`${CADDY_VERSION}\`"
             echo "- \`${FULL_TAG}\`"
-            echo
-            echo "**Platforms:** linux/amd64, linux/arm64"
           } > "$notes_file"
 
           gh release create "$release_tag" \

@@ -1,5 +1,8 @@
 # Homelab Caddy Image
 
+[![Build & Release](https://github.com/vongola12324/homelab-caddy-image/actions/workflows/build.yml/badge.svg)](https://github.com/vongola12324/homelab-caddy-image/actions/workflows/build.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/vongola12324/homelab-caddy-image)](https://github.com/vongola12324/homelab-caddy-image/releases/latest)
+
 A custom Caddy image built specifically for my homelab.
 
 The official Caddy image only includes the standard modules. Since my homelab relies on additional modules such as Docker service discovery and Cloudflare DNS challenge, this repository builds a custom Caddy binary using `xcaddy` and publishes it as a Docker image.
@@ -15,9 +18,12 @@ Although this image is primarily maintained for my own environment, anyone is we
 
 The image currently includes the following modules:
 
-- caddy-docker-proxy
-- Cloudflare DNS
-- Layer4
+| Module | Description |
+|--------|-------------|
+| [caddy-docker-proxy](https://github.com/lucaslorentz/caddy-docker-proxy) | Automatic service discovery via Docker labels |
+| [caddy-dns/cloudflare](https://github.com/caddy-dns/cloudflare) | Cloudflare DNS challenge for ACME TLS certificates |
+| [souin](https://github.com/darkweak/souin) | HTTP cache layer |
+| [caddy-l4](https://github.com/mholt/caddy-l4) | Layer 4 (TCP/UDP) proxy |
 
 More modules may be added in future releases as my homelab evolves.
 
@@ -28,25 +34,25 @@ More modules may be added in future releases as my homelab evolves.
 Pull the latest image:
 
 ```bash
-docker pull ghcr.io/<username>/homelab-caddy:latest
+docker pull ghcr.io/vongola12324/homelab-caddy-image:latest
 ```
 
 Use a specific Caddy release:
 
 ```bash
-docker pull ghcr.io/<username>/homelab-caddy:2.11
+docker pull ghcr.io/vongola12324/homelab-caddy-image:2.11
 ```
 
 Pin to a specific Caddy version:
 
 ```bash
-docker pull ghcr.io/<username>/homelab-caddy:2.11.4
+docker pull ghcr.io/vongola12324/homelab-caddy-image:2.11.4
 ```
 
 Pin to an immutable build:
 
 ```bash
-docker pull ghcr.io/<username>/homelab-caddy:2.11.4-r3
+docker pull ghcr.io/vongola12324/homelab-caddy-image:2.11.4-r3
 ```
 
 Available tag types:
