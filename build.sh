@@ -22,4 +22,4 @@ echo "$ARGS"
 echo "========================================"
 
 # shellcheck disable=SC2086
-xcaddy build $ARGS
+xcaddy build --output /usr/bin/caddy $ARGS
