@@ -24,8 +24,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write   # create GitHub Releases
-  packages: write    # push to GHCR
+  contents: write
+  packages: write
 
 env:
   REGISTRY: ghcr.io
@@ -33,14 +33,17 @@ env:
   IS_PUBLISH: ${{ github.event_name != 'pull_request' }}
 
 jobs:
-  build:
-    name: Build, validate & release
+  prepare:
+    name: Prepare
     runs-on: ubuntu-latest
     outputs:
+      caddy_version: ${{ steps.version.outputs.caddy_version }}
+      major: ${{ steps.version.outputs.major }}
+      minor: ${{ steps.version.outputs.minor }}
       full_tag: ${{ steps.revision.outputs.full_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Parse ARG CADDY_VERSION from Dockerfile
         id: version
@@ -55,7 +58,6 @@ jobs:
           fi
 
           caddy_version="${line#ARG CADDY_VERSION=}"
-          # Defensive trim in case of stray whitespace/CR
           caddy_version="$(echo "$caddy_version" | tr -d '[:space:]')"
 
           if ! [[ "$caddy_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -115,7 +117,6 @@ jobs:
             echo "Existing tags:"
             jq -r '.tags[]?' /tmp/tags_response.json | sort
 
-            # Match tags exactly like "<CADDY_VERSION>-rN" and extract N.
             highest="$(jq -r '.tags[]?' /tmp/tags_response.json \
               | grep -E "^${CADDY_VERSION}-r[0-9]+$" \
               | sed -E "s/^${CADDY_VERSION}-r([0-9]+)$/\1/" \
@@ -138,13 +139,27 @@ jobs:
           echo "next_revision=${next_revision}" >> "$GITHUB_OUTPUT"
           echo "full_tag=${full_tag}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+  build:
+    name: Build (${{ matrix.suffix }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Only needed when we're actually going to push.
       - name: Log in to GHCR
         if: env.IS_PUBLISH == 'true'
         uses: docker/login-action@v3
@@ -153,54 +168,73 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Only needed when we're actually going to push: on a PR there
-      # are no tags to compute, since we never publish anything.
-      - name: Compute image metadata & tags
-        id: meta
-        if: env.IS_PUBLISH == 'true'
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.major }}
-            type=raw,value=${{ steps.version.outputs.minor }}
-            type=raw,value=${{ steps.version.outputs.caddy_version }}
-            type=raw,value=${{ steps.revision.outputs.full_tag }}
-
-      # Single build step for both code paths:
-      # - pull_request: push: false. Proves the image builds
-      #   successfully on both platforms; nothing is published, no
-      #   registry credentials are used, no tags are computed.
-      # - push / workflow_dispatch: push: true, with the full tag set
-      #   from docker/metadata-action.
       - name: Build (and push when publishing)
-        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: ${{ env.IS_PUBLISH == 'true' }}
-          tags: ${{ env.IS_PUBLISH == 'true' && steps.meta.outputs.tags || '' }}
-          labels: ${{ env.IS_PUBLISH == 'true' && steps.meta.outputs.labels || '' }}
+          tags: ${{ env.IS_PUBLISH == 'true' && format('{0}/{1}:{2}-{3}', env.REGISTRY, env.IMAGE_NAME, needs.prepare.outputs.full_tag, matrix.suffix) || '' }}
+          provenance: false
           build-args: |
-            CADDY_VERSION=${{ steps.version.outputs.caddy_version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            CADDY_VERSION=${{ needs.prepare.outputs.caddy_version }}
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+
+  merge:
+    name: Merge & Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create multi-arch manifest
+        env:
+          FULL_TAG: ${{ needs.prepare.outputs.full_tag }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+          image_lower="$(echo "${IMAGE}" | tr '[:upper:]' '[:lower:]')"
+          docker buildx imagetools create \
+            --tag "${image_lower}:latest" \
+            --tag "${image_lower}:${{ needs.prepare.outputs.major }}" \
+            --tag "${image_lower}:${{ needs.prepare.outputs.minor }}" \
+            --tag "${image_lower}:${{ needs.prepare.outputs.caddy_version }}" \
+            --tag "${image_lower}:${FULL_TAG}" \
+            "${image_lower}:${FULL_TAG}-amd64" \
+            "${image_lower}:${FULL_TAG}-arm64"
+
+      - name: Inspect manifest
+        env:
+          FULL_TAG: ${{ needs.prepare.outputs.full_tag }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          image_lower="$(echo "${IMAGE}" | tr '[:upper:]' '[:lower:]')"
+          docker buildx imagetools inspect "${image_lower}:${FULL_TAG}"
 
       - name: Create GitHub Release
-        if: env.IS_PUBLISH == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CADDY_VERSION: ${{ steps.version.outputs.caddy_version }}
-          MAJOR: ${{ steps.version.outputs.major }}
-          MINOR: ${{ steps.version.outputs.minor }}
-          FULL_TAG: ${{ steps.revision.outputs.full_tag }}
+          CADDY_VERSION: ${{ needs.prepare.outputs.caddy_version }}
+          MAJOR: ${{ needs.prepare.outputs.major }}
+          MINOR: ${{ needs.prepare.outputs.minor }}
+          FULL_TAG: ${{ needs.prepare.outputs.full_tag }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
           set -euo pipefail
 
+          image_lower="$(echo "${IMAGE}" | tr '[:upper:]' '[:lower:]')"
           release_tag="v${FULL_TAG}"
           revision_number="${FULL_TAG##*-r}"
           title="Caddy ${CADDY_VERSION} (r${revision_number})"
@@ -210,12 +244,14 @@ jobs:
             exit 0
           fi
 
+          digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${image_lower}:${FULL_TAG}")"
+
           notes_file="$(mktemp)"
           {
-            echo "Automated build of \`ghcr.io/${{ env.IMAGE_NAME }}:${FULL_TAG}\`."
+            echo "Automated build of \`${image_lower}:${FULL_TAG}\`."
             echo
             echo "**Caddy version:** ${CADDY_VERSION}"
-            echo "**Image digest:** ${{ steps.build.outputs.digest }}"
+            echo "**Image digest:** ${digest}"
             echo
             echo "**Published tags:**"
             echo "- \`latest\`"
@@ -230,5 +266,3 @@ jobs:
           gh release create "$release_tag" \
             --title "$title" \
             --notes-file "$notes_file"
-
-
