@@ -1,5 +1,5 @@
 # Service Discovery
-github.com/lucaslorentz/caddy-docker-proxy/v2@v2.12.1
+github.com/lucaslorentz/caddy-docker-proxy/v2@v2.13.0
 
 # DNS Challenge
 github.com/caddy-dns/cloudflare@v0.2.4
