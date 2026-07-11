@@ -9,3 +9,6 @@ github.com/darkweak/souin/plugins/caddy@v1.7.8
 
 # Layer 4 Proxy
 github.com/mholt/caddy-l4@v0.1.1
+
+# IP Source
+github.com/WeidiDeng/caddy-cloudflare-ip
