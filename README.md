@@ -24,6 +24,7 @@ The image currently includes the following modules:
 | [caddy-dns/cloudflare](https://github.com/caddy-dns/cloudflare) | Cloudflare DNS challenge for ACME TLS certificates |
 | [souin](https://github.com/darkweak/souin) | HTTP cache layer |
 | [caddy-l4](https://github.com/mholt/caddy-l4) | Layer 4 (TCP/UDP) proxy |
+| [caddy-cloudflare-ip](https://github.com/WeidiDeng/caddy-cloudflare-ip) | Cloudflare IP ranges as a trusted proxy IP source |
 
 More modules may be added in future releases as my homelab evolves.
 
