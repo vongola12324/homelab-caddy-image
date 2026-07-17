@@ -1,5 +1,5 @@
 # Service Discovery
-github.com/lucaslorentz/caddy-docker-proxy/v2@v2.12.1
+github.com/lucaslorentz/caddy-docker-proxy/v2@v2.13.1
 
 # DNS Challenge
 github.com/caddy-dns/cloudflare@v0.2.4
@@ -8,7 +8,7 @@ github.com/caddy-dns/cloudflare@v0.2.4
 github.com/darkweak/souin/plugins/caddy@v1.7.8
 
 # Layer 4 Proxy
-github.com/mholt/caddy-l4@v0.1.1
+github.com/mholt/caddy-l4@v0.1.2
 
 # IP Source
 github.com/WeidiDeng/caddy-cloudflare-ip
