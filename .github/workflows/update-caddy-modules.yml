@@ -59,16 +59,49 @@ jobs:
  
             if [ "$current_version" != "$latest_version" ]; then
               updates_found=true
-              echo "- \`${module_path}\`: \`${current_version}\` → \`${latest_version}\`" >> "$summary_file"
+
+              # Not every tag has a GitHub Release with notes; fall back to
+              # a compare link when one doesn't exist.
+              release_json="$(gh api "repos/${repo}/releases/tags/${latest_version}" 2>/dev/null || true)"
+              release_notes="$(echo "$release_json" | jq -r '.body // empty' 2>/dev/null || true)"
+              release_url="$(echo "$release_json" | jq -r '.html_url // empty' 2>/dev/null || true)"
+
+              max_len=1500
+              if [ "${#release_notes}" -gt "$max_len" ]; then
+                release_notes="${release_notes:0:$max_len}"$'\n\n_(truncated — see full release notes)_'
+              fi
+
+              {
+                echo "### \`${module_path}\`"
+                echo "\`${current_version}\` → \`${latest_version}\`"
+                echo ""
+                if [ -n "$release_notes" ]; then
+                  echo "<details>"
+                  echo "<summary>Changelog</summary>"
+                  echo ""
+                  echo "$release_notes"
+                  echo ""
+                  echo "[Full release notes](${release_url})"
+                  echo "</details>"
+                else
+                  echo "No GitHub release notes found for \`${latest_version}\`. [Compare changes](https://github.com/${repo}/compare/${current_version}...${latest_version})."
+                fi
+                echo ""
+              } >> "$summary_file"
+
               sed -i "s|${module_path}@${current_version}|${module_path}@${latest_version}|" modules.txt
             fi
           done < <(grep -vE '^\s*#' modules.txt | grep -vE '^\s*$')
  
           echo "updates_found=${updates_found}" >> "$GITHUB_OUTPUT"
+
+          # Random delimiter: changelogs are upstream-controlled text, so a
+          # fixed delimiter could be used to inject extra GITHUB_OUTPUT keys.
+          delimiter="MODULE_SUMMARY_$(openssl rand -hex 8)"
           {
-            echo "summary<<MODULE_SUMMARY_EOF"
+            echo "summary<<${delimiter}"
             cat "$summary_file"
-            echo "MODULE_SUMMARY_EOF"
+            echo "${delimiter}"
           } >> "$GITHUB_OUTPUT"
  
       - name: Open pull request
