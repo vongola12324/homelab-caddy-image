@@ -57,6 +57,24 @@ jobs:
 
           echo "Latest upstream Caddy version: ${latest_version}"
           echo "latest_version=${latest_version}" >> "$GITHUB_OUTPUT"
+          echo "release_url=$(echo "$latest_json" | jq -r '.html_url')" >> "$GITHUB_OUTPUT"
+
+          changelog="$(echo "$latest_json" | jq -r '.body // "_No release notes provided._"')"
+
+          # Keep the PR body reasonable in size.
+          max_len=4000
+          if [ "${#changelog}" -gt "$max_len" ]; then
+            changelog="${changelog:0:$max_len}"$'\n\n_(truncated — see full release notes above)_'
+          fi
+
+          # Random delimiter: the changelog is upstream-controlled text, so a
+          # fixed delimiter could be used to inject extra GITHUB_OUTPUT keys.
+          delimiter="CHANGELOG_$(openssl rand -hex 8)"
+          {
+            echo "changelog<<${delimiter}"
+            echo "$changelog"
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Compare versions
         id: compare
@@ -107,6 +125,17 @@ jobs:
             (linux/amd64 + linux/arm64) passes. Merging then triggers
             the [build & release workflow](../../actions/workflows/build.yml)
             to publish `${{ steps.latest.outputs.latest_version }}-r1`.
+
+            ## Changelog
+
+            <details>
+            <summary>${{ steps.latest.outputs.latest_version }} release notes</summary>
+
+            ${{ steps.latest.outputs.changelog }}
+
+            </details>
+
+            [Full release notes](${{ steps.latest.outputs.release_url }})
           branch: bump-caddy-version
           delete-branch: true
           labels: |
