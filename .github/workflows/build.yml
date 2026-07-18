@@ -72,13 +72,29 @@ jobs:
       - name: Read modules list
         id: modules
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           modules_md=""
           while IFS= read -r line; do
-            pkg="${line%@*}"
-            ver="${line##*@}"
-            repo="$(echo "$pkg" | sed -E 's#^github\.com/([^/]+)/([^/]+).*#\1/\2#')"
+            repo="$(echo "${line%@*}" | sed -E 's#^github\.com/([^/]+)/([^/]+).*#\1/\2#')"
+
+            if [[ "$line" == *@* ]]; then
+              ver="${line##*@}"
+            else
+              # No pinned tag (module has no releases): xcaddy resolves
+              # this to the latest commit on the default branch, so show
+              # that instead of a version.
+              branch="$(gh api "repos/${repo}" --jq '.default_branch' 2>/dev/null || true)"
+              sha="$(gh api "repos/${repo}/commits/${branch:-HEAD}" --jq '.sha[0:7]' 2>/dev/null || true)"
+              if [ -n "$branch" ] && [ -n "$sha" ]; then
+                ver="${branch}@${sha} (latest commit, untagged)"
+              else
+                ver="latest (untagged)"
+              fi
+            fi
+
             modules_md="${modules_md}- [\`${repo}\`](https://github.com/${repo}): \`${ver}\`\n"
           done < <(grep -vE '^\s*#' modules.txt | grep -vE '^\s*$')
           {
