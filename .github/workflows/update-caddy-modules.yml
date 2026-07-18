@@ -94,6 +94,6 @@ jobs:
       - name: Enable Pull Request Automerge
         if: steps.check.outputs.updates_found == 'true'
         shell: bash
-        run: gh pr merge --merge --auto "${{ steps.cpr.outputs.pull-request-number }}"
+        run: gh pr merge --squash --auto "${{ steps.cpr.outputs.pull-request-number }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
