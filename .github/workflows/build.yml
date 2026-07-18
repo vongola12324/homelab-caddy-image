@@ -37,6 +37,7 @@ jobs:
       minor: ${{ steps.version.outputs.minor }}
       full_tag: ${{ steps.revision.outputs.full_tag }}
       modules: ${{ steps.modules.outputs.modules }}
+      resolved_modules: ${{ steps.modules.outputs.resolved_modules }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -77,30 +78,45 @@ jobs:
         run: |
           set -euo pipefail
           modules_md=""
+          resolved_txt=""
           while IFS= read -r line; do
             repo="$(echo "${line%@*}" | sed -E 's#^github\.com/([^/]+)/([^/]+).*#\1/\2#')"
 
             if [[ "$line" == *@* ]]; then
               ver="${line##*@}"
+              resolved_line="$line"
             else
-              # No pinned tag (module has no releases): xcaddy resolves
-              # this to the latest commit on the default branch, so show
-              # that instead of a version.
+              # No pinned tag (module has no releases): resolve the
+              # default branch's current commit once, here, and pin it
+              # into modules.txt for the build job to consume. Without
+              # this, each matrix job (amd64/arm64) would independently
+              # re-resolve "latest" and could land on different commits
+              # from each other and from what these release notes show —
+              # and since modules.txt wouldn't change, Docker's layer
+              # cache would never invalidate to pick up new commits at all.
               branch="$(gh api "repos/${repo}" --jq '.default_branch' 2>/dev/null || true)"
-              sha="$(gh api "repos/${repo}/commits/${branch:-HEAD}" --jq '.sha[0:7]' 2>/dev/null || true)"
-              if [ -n "$branch" ] && [ -n "$sha" ]; then
-                ver="${branch}@${sha} (latest commit, untagged)"
+              sha="$(gh api "repos/${repo}/commits/${branch:-HEAD}" --jq '.sha' 2>/dev/null || true)"
+              if [ -n "$sha" ]; then
+                ver="${branch:-default}@${sha:0:7} (latest commit, untagged, pinned for this build)"
+                resolved_line="${line}@${sha}"
               else
-                ver="latest (untagged)"
+                ver="latest (untagged — branch/commit lookup failed)"
+                resolved_line="$line"
               fi
             fi
 
             modules_md="${modules_md}- [\`${repo}\`](https://github.com/${repo}): \`${ver}\`\n"
+            resolved_txt="${resolved_txt}${resolved_line}\n"
           done < <(grep -vE '^\s*#' modules.txt | grep -vE '^\s*$')
           {
             echo "modules<<MODULES_EOF"
             printf '%b' "$modules_md"
             echo "MODULES_EOF"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "resolved_modules<<RESOLVED_MODULES_EOF"
+            printf '%b' "$resolved_txt"
+            echo "RESOLVED_MODULES_EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Determine next revision from existing GHCR tags
@@ -186,6 +202,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Pin resolved module versions
+        shell: bash
+        env:
+          RESOLVED_MODULES: ${{ needs.prepare.outputs.resolved_modules }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$RESOLVED_MODULES" > modules.txt
+          cat modules.txt
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
