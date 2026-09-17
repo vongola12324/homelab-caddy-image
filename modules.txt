@@ -5,7 +5,7 @@ github.com/lucaslorentz/caddy-docker-proxy/v2@v2.13.1
 github.com/caddy-dns/cloudflare@v0.2.4
 
 # HTTP Cache
-github.com/darkweak/souin/plugins/caddy@v1.7.8
+github.com/darkweak/souin/plugins/caddy@v1.7.9
 
 # Layer 4 Proxy
 github.com/mholt/caddy-l4@v0.1.2
