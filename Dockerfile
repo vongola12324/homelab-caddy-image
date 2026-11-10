@@ -1,4 +1,4 @@
-ARG CADDY_VERSION=2.11.4
+ARG CADDY_VERSION=2.11.9
 
 # Step1: Build Caddy
 FROM caddy:${CADDY_VERSION}-builder-alpine AS builder
